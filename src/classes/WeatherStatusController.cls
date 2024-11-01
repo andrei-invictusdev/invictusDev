@@ -8,8 +8,6 @@ public with sharing class WeatherStatusController {
 
     @AuraEnabled(cacheable=false)
     public static List<WeatherDataWrapper> getWeatherData(String recordId) {
-        system.debug('START /==');
-
         if (String.isNotBlank(recordId)) {
             List<Account> queryResult = [
                     SELECT BillingCity, BillingCountry, BillingState
@@ -29,7 +27,7 @@ public with sharing class WeatherStatusController {
                         if (weatherApiResponse != null) {
                             List<WeatherDataWrapper> wrappers = new List<WeatherDataWrapper>();
 
-                            if (weatherApiResponse.hourly.times.size() == weatherApiResponse.hourly.temperature_2m.size()) {
+                            if (weatherApiResponse.hourly != null && weatherApiResponse.hourly.times.size() == weatherApiResponse.hourly.temperature_2m.size()) {
                                 Integer size = weatherApiResponse.hourly.times.size();
 
                                 for (Integer i = 0; i < size; i++) {
@@ -47,49 +45,55 @@ public with sharing class WeatherStatusController {
         return null;
     }
 
+    @TestVisible
     private static String getGeocodeLocation(String city, String state, String country) {
         city = cleanupDirtyChars(city);
         state = cleanupDirtyChars(state);
         country = cleanupDirtyChars(country);
 
-        HttpRequest request = new HttpRequest();
-        Http http = new Http();
-        request.setMethod('GET');
-        request.setEndpoint('https://geocoding-api.open-meteo.com/v1/search?name=' + city + '&count=10&language=en&format=json');
-        HttpResponse response = http.send(request);
+        try {
+            HttpRequest request = new HttpRequest();
+            Http http = new Http();
+            request.setMethod('GET');
+            request.setEndpoint('https://geocoding-api.open-meteo.com/v1/search?name=' + city + '&count=10&language=en&format=json');
+            HttpResponse response = http.send(request);
 
-        if (response != null && response.getStatusCode() == 200) {
-            GeocodingApiResponse apiResult = (GeocodingApiResponse) JSON.deserialize(response.getBody(), GeocodingApiResponse.class);
+            if (response != null && response.getStatusCode() == 200) {
+                GeocodingApiResponse apiResult = (GeocodingApiResponse) JSON.deserialize(response.getBody(), GeocodingApiResponse.class);
 
-            if (apiResult != null) {
-                for (GeocodingApiInnerResponse auxInnerResponse : apiResult.results) {
+                if (apiResult != null) {
+                    for (GeocodingApiInnerResponse auxInnerResponse : apiResult.results) {
 
-                    system.debug('country /== ' + country + ' ||| ' + auxInnerResponse.country);
-                    system.debug('state /== ' + state + ' ||| ' + auxInnerResponse.admin1);
-                    system.debug('name /== ' + city + ' ||| ' + auxInnerResponse.name);
-
-                    if (country.equalsIgnoreCase(cleanupDirtyChars(auxInnerResponse.country)) && state.equalsIgnoreCase(cleanupDirtyChars(auxInnerResponse.admin1))  && city.equalsIgnoreCase(cleanupDirtyChars(auxInnerResponse.name))) {
-                        return auxInnerResponse.latitude + FIXED_SEPARATOR + auxInnerResponse.longitude;
+                        if (country.equalsIgnoreCase(cleanupDirtyChars(auxInnerResponse.country)) && state.equalsIgnoreCase(cleanupDirtyChars(auxInnerResponse.admin1))  && city.equalsIgnoreCase(cleanupDirtyChars(auxInnerResponse.name))) {
+                            return auxInnerResponse.latitude + FIXED_SEPARATOR + auxInnerResponse.longitude;
+                        }
                     }
                 }
             }
+        } catch (Exception ex) {
+            System.debug(ex);
         }
 
         return '';
     }
 
-    public static WeatherApiResponse getWeatherInfo(String latitude, String longitude) {
-        String tomorrowDate = system.now().addDays(1).format('yyyy-MM-dd').toString();
+    @TestVisible
+    private static WeatherApiResponse getWeatherInfo(String latitude, String longitude) {
+        String tomorrowDate = System.now().addDays(1).format('yyyy-MM-dd').toString();
 
-        HttpRequest request = new HttpRequest();
-        Http http = new Http();
-        request.setMethod('GET');
-        request.setEndpoint('https://api.open-meteo.com/v1/forecast?latitude=' + latitude + '&longitude=' + longitude + '&hourly=temperature_2m&start_date=' + tomorrowDate + '&end_date=' + tomorrowDate);
+        try {
+            HttpRequest request = new HttpRequest();
+            Http http = new Http();
+            request.setMethod('GET');
+            request.setEndpoint('https://api.open-meteo.com/v1/forecast?latitude=' + latitude + '&longitude=' + longitude + '&hourly=temperature_2m&start_date=' + tomorrowDate + '&end_date=' + tomorrowDate);
 
-        HttpResponse response = http.send(request);
+            HttpResponse response = http.send(request);
 
-        if (response != null && response.getStatusCode() == 200) {
-            return (WeatherApiResponse) JSON.deserialize(response.getBody().replace('time', 'times'), WeatherApiResponse.class);
+            if (response != null && response.getStatusCode() == 200) {
+                return (WeatherApiResponse) JSON.deserialize(response.getBody().replace('time', 'times'), WeatherApiResponse.class);
+            }
+        } catch (Exception ex) {
+            System.debug(ex);
         }
 
         return null;
@@ -107,10 +111,12 @@ public with sharing class WeatherStatusController {
         public String admin1 { get; set; }
     }
 
+    @TestVisible
     class WeatherApiResponse {
         public WeatherApiInnerResponse hourly;
     }
 
+    @TestVisible
     class WeatherApiInnerResponse {
         public List<String> times { get; set; }
         public List<Decimal> temperature_2m { get; set; }
